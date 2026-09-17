@@ -37,7 +37,7 @@ gh_source() {
 }
 
 gh_releases() {
-  local token="${RELEASES_TOKEN:-${GH_TOKEN:-}}"
+  local token="${RELEASES_TOKEN:-${SOURCE_TOKEN:-${GH_TOKEN:-}}}"
   if [[ -n "$token" ]]; then
     GH_TOKEN="$token" gh "$@"
   else
