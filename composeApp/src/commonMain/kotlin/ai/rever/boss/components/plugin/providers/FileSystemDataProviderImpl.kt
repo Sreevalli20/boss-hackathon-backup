@@ -1,8 +1,6 @@
 package ai.rever.boss.components.plugin.providers
 
 import ai.rever.boss.components.events.FileEventBus
-import ai.rever.boss.components.plugin.panels.left_top.directoryHasChildren
-import ai.rever.boss.components.plugin.panels.left_top.scanDirectory
 import ai.rever.boss.plugin.api.FileNodeData
 import ai.rever.boss.plugin.api.FileSystemDataProvider
 import ai.rever.boss.utils.logging.BossLogger
@@ -11,10 +9,6 @@ import ai.rever.boss.utils.revealInFileManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import java.awt.Toolkit
-import java.awt.datatransfer.StringSelection
-import java.io.File
-import ai.rever.boss.components.plugin.panels.left_top.scanDirectoryWithDepth as platformScanDirectoryWithDepth
 
 /**
  * Implementation of FileSystemDataProvider that wraps platform-specific file operations.
@@ -29,8 +23,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     override suspend fun scanDirectory(path: String): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val validatedPath = validateFileSystemPath(path, "scanDirectory")
-            ai.rever.boss.components.plugin.panels.left_top
-                .scanDirectory(validatedPath)
+            scanDirectoryPlatform(validatedPath, false)
         }
 
     override suspend fun scanDirectoryWithDepth(
@@ -40,13 +33,12 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val validatedPath = validateFileSystemPath(path, "scanDirectoryWithDepth")
-            platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth)
+            scanDirectoryWithDepthPlatform(validatedPath, maxDepth, startDepth, false)
         }
 
     override fun directoryHasChildren(path: String): Boolean {
         val validatedPath = validateFileSystemPath(path, "directoryHasChildren")
-        return ai.rever.boss.components.plugin.panels.left_top
-            .directoryHasChildren(validatedPath)
+        return directoryHasChildrenPlatform(validatedPath, false)
     }
 
     // This host honors the showHidden flag on the read-side scan overloads
@@ -60,8 +52,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val validatedPath = validateFileSystemPath(path, "scanDirectory")
-            ai.rever.boss.components.plugin.panels.left_top
-                .scanDirectory(validatedPath, showHidden)
+            scanDirectoryPlatform(validatedPath, showHidden)
         }
 
     override suspend fun scanDirectoryWithDepth(
@@ -72,7 +63,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             val validatedPath = validateFileSystemPath(path, "scanDirectoryWithDepth")
-            platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth, showHidden)
+            scanDirectoryWithDepthPlatform(validatedPath, maxDepth, startDepth, showHidden)
         }
 
     override fun directoryHasChildren(
@@ -80,8 +71,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         showHidden: Boolean,
     ): Boolean {
         val validatedPath = validateFileSystemPath(path, "directoryHasChildren")
-        return ai.rever.boss.components.plugin.panels.left_top
-            .directoryHasChildren(validatedPath, showHidden)
+        return directoryHasChildrenPlatform(validatedPath, showHidden)
     }
 
     override fun openFile(
@@ -99,28 +89,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         fileName: String,
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateChildFileSystemPath(parentPath, fileName, "createFile")
-                val newFile = java.io.File(validatedPath)
-
-                val parentDir = newFile.parentFile
-                if (parentDir != null && (!parentDir.exists() || !parentDir.isDirectory)) {
-                    return@withContext Result.failure(IllegalArgumentException("Parent directory does not exist: $parentPath"))
-                }
-
-                if (newFile.exists()) {
-                    return@withContext Result.failure(IllegalStateException("File already exists: ${newFile.absolutePath}"))
-                }
-
-                val created = newFile.createNewFile()
-                if (created) {
-                    Result.success(newFile.absolutePath)
-                } else {
-                    Result.failure(IllegalStateException("Failed to create file: ${newFile.absolutePath}"))
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+            createFilePlatform(parentPath, fileName)
         }
     }
 
@@ -129,54 +98,13 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         folderName: String,
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateChildFileSystemPath(parentPath, folderName, "createFolder")
-                val newFolder = java.io.File(validatedPath)
-
-                val parentDir = newFolder.parentFile
-                if (parentDir != null && (!parentDir.exists() || !parentDir.isDirectory)) {
-                    return@withContext Result.failure(IllegalArgumentException("Parent directory does not exist: $parentPath"))
-                }
-
-                if (newFolder.exists()) {
-                    return@withContext Result.failure(IllegalStateException("Folder already exists: ${newFolder.absolutePath}"))
-                }
-
-                val created = newFolder.mkdir()
-                if (created) {
-                    Result.success(newFolder.absolutePath)
-                } else {
-                    Result.failure(IllegalStateException("Failed to create folder: ${newFolder.absolutePath}"))
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+            createFolderPlatform(parentPath, folderName)
         }
     }
 
     override suspend fun delete(path: String): Result<Unit> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateFileSystemPath(path, "delete")
-                val file = java.io.File(validatedPath)
-
-                // Note: We don't check exists() first to avoid race conditions.
-                // delete() and deleteRecursively() handle non-existent files gracefully.
-                val deleted =
-                    if (file.isDirectory) {
-                        file.deleteRecursively()
-                    } else {
-                        file.delete()
-                    }
-
-                if (deleted) {
-                    Result.success(Unit)
-                } else {
-                    Result.failure(IllegalStateException("Failed to delete (file may not exist or is locked): $path"))
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+            deletePlatform(path)
         }
     }
 
@@ -185,33 +113,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         newName: String,
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateFileSystemPath(path, "rename")
-                val file = java.io.File(validatedPath)
-                if (!file.exists()) {
-                    return@withContext Result.failure(IllegalArgumentException("File or folder does not exist: $path"))
-                }
-
-                val parentDir =
-                    file.parentFile
-                        ?: return@withContext Result.failure(IllegalStateException("Cannot determine parent directory"))
-
-                val validatedNewPath = validateChildFileSystemPath(parentDir.absolutePath, newName, "rename")
-                val newFile = java.io.File(validatedNewPath)
-
-                if (newFile.exists()) {
-                    return@withContext Result.failure(IllegalStateException("A file or folder with that name already exists"))
-                }
-
-                val renamed = file.renameTo(newFile)
-                if (renamed) {
-                    Result.success(newFile.absolutePath)
-                } else {
-                    Result.failure(IllegalStateException("Failed to rename: $path"))
-                }
-            } catch (e: Exception) {
-                Result.failure(e)
-            }
+            renamePlatform(path, newName)
         }
     }
 
@@ -226,65 +128,59 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         return revealInFileManager(validatedPath)
     }
 
-    override fun copyToClipboard(text: String): Result<Unit> =
-        try {
-            val clipboard = Toolkit.getDefaultToolkit().systemClipboard
-            clipboard.setContents(StringSelection(text), null)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            logger.warn(LogCategory.FILE, "Failed to copy to clipboard", error = e)
-            Result.failure(e)
-        }
+    override fun copyToClipboard(text: String): Result<Unit> = copyToClipboardPlatform(text)
 
     override suspend fun writeFile(
         path: String,
         content: String,
     ): Result<Unit> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateFileSystemPath(path, "writeFile")
-                val file = java.io.File(validatedPath)
-
-                // Ensure parent directory exists
-                val parentDir = file.parentFile
-                if (parentDir != null && !parentDir.exists()) {
-                    parentDir.mkdirs()
-                }
-
-                file.writeText(content)
-                Result.success(Unit)
-            } catch (e: Exception) {
-                logger.warn(LogCategory.FILE, "Failed to write file", mapOf("path" to path), error = e)
-                Result.failure(e)
-            }
+            writeFilePlatform(path, content)
         }
     }
 
     override suspend fun readFile(path: String): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
-            try {
-                val validatedPath = validateFileSystemPath(path, "readFile")
-                val file = java.io.File(validatedPath)
-
-                if (!file.exists()) {
-                    return@withContext Result.failure(IllegalArgumentException("File does not exist: $path"))
-                }
-                Result.success(file.readText())
-            } catch (e: Exception) {
-                logger.warn(LogCategory.FILE, "Failed to read file", mapOf("path" to path), error = e)
-                Result.failure(e)
-            }
+            readFilePlatform(path)
         }
     }
 
-    override fun getDownloadsDirectory(): String {
-        val homeDir = System.getProperty("user.home")
-        val downloadsDir = java.io.File(homeDir, "Downloads")
-        return if (downloadsDir.exists()) downloadsDir.absolutePath else homeDir
-    }
+    override fun getDownloadsDirectory(): String = getDownloadsDirectoryPlatform()
 
-    override fun getHomeDirectory(): String = System.getProperty("user.home")
+    override fun getHomeDirectory(): String = getHomeDirectoryPlatform()
 }
+
+/**
+ * Platform-specific path validation for filesystem operations.
+ * Implemented in desktopMain for JVM platforms with PluginFileSystemSecurity.
+ */
+internal expect fun validateFileSystemPath(path: String, operation: String): String
+
+/**
+ * Platform-specific child path validation for create operations.
+ * Implemented in desktopMain for JVM platforms with PluginFileSystemSecurity.
+ */
+internal expect fun validateChildFileSystemPath(parentPath: String, childName: String, operation: String): String
+
+/**
+ * Platform-specific implementations of file operations.
+ * Implemented in desktopMain for JVM platforms.
+ */
+internal expect fun scanDirectoryPlatform(path: String): FileNodeData?
+internal expect fun scanDirectoryPlatform(path: String, showHidden: Boolean): FileNodeData?
+internal expect fun scanDirectoryWithDepthPlatform(path: String, maxDepth: Int, startDepth: Int): FileNodeData?
+internal expect fun scanDirectoryWithDepthPlatform(path: String, maxDepth: Int, startDepth: Int, showHidden: Boolean): FileNodeData?
+internal expect fun directoryHasChildrenPlatform(path: String): Boolean
+internal expect fun directoryHasChildrenPlatform(path: String, showHidden: Boolean): Boolean
+internal expect fun createFilePlatform(parentPath: String, fileName: String): Result<String>
+internal expect fun createFolderPlatform(parentPath: String, folderName: String): Result<String>
+internal expect fun deletePlatform(path: String): Result<Unit>
+internal expect fun renamePlatform(path: String, newName: String): Result<String>
+internal expect fun copyToClipboardPlatform(text: String): Result<Unit>
+internal expect fun writeFilePlatform(path: String, content: String): Result<Unit>
+internal expect fun readFilePlatform(path: String): Result<String>
+internal expect fun getDownloadsDirectoryPlatform(): String
+internal expect fun getHomeDirectoryPlatform(): String
 
 /**
  * Platform-specific path validation for filesystem operations.

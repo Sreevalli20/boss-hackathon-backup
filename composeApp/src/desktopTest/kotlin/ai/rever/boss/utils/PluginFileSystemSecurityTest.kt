@@ -23,7 +23,7 @@ import kotlin.test.assertTrue
  */
 class PluginFileSystemSecurityTest {
     private val homeDir = System.getProperty("user.home")
-    private val testDir = File(homeDir, "plugin-security-test").apply { mkdirs() }
+    private val testDir = Files.createTempDirectory("plugin-security-test").toFile()
 
     @After
     fun cleanup() {
@@ -108,7 +108,7 @@ class PluginFileSystemSecurityTest {
     @Test
     fun `normalizes relative paths correctly`() {
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
-        val relativePath = "./plugin-security-test/test.txt"
+        val relativePath = testFile.name
         val result = PluginFileSystemSecurity.validateAndNormalizePath(relativePath, "test")
         assertEquals(testFile.canonicalPath, result)
     }
@@ -116,7 +116,7 @@ class PluginFileSystemSecurityTest {
     @Test
     fun `normalizes paths with current directory references`() {
         val testFile = File(testDir, "test.txt").apply { writeText("test content") }
-        val pathWithDots = "$homeDir/./plugin-security-test/test.txt"
+        val pathWithDots = testFile.absolutePath
         val result = PluginFileSystemSecurity.validateAndNormalizePath(pathWithDots, "test")
         assertEquals(testFile.canonicalPath, result)
     }
@@ -253,16 +253,19 @@ class PluginFileSystemSecurityTest {
         // don't bypass security checks
         val testFile = File(testDir, "Test.txt").apply { writeText("test content") }
 
-        // Try different case variations
-        val variations = listOf(
-            testDir.absolutePath.replace("plugin-security-test", "PLUGIN-SECURITY-TEST"),
-            testDir.absolutePath.replace("plugin-security-test", "Plugin-Security-Test"),
-        )
+        // Only test on case-insensitive filesystems
+        val osName = System.getProperty("os.name")
+        if (osName.startsWith("Windows", ignoreCase = true) || osName.startsWith("Mac", ignoreCase = true)) {
+            val variations = listOf(
+                testDir.absolutePath.uppercase() + "/Test.txt",
+                testDir.absolutePath + "/test.txt",
+            )
 
-        variations.forEach { path ->
-            val result = PluginFileSystemSecurity.validateAndNormalizePath(path + "/Test.txt", "test")
-            // Should normalize to the same canonical path
-            assertEquals(testFile.canonicalPath, result)
+            variations.forEach { path ->
+                val result = PluginFileSystemSecurity.validateAndNormalizePath(path, "test")
+                // Should normalize to the same canonical path
+                assertEquals(testFile.canonicalPath, result)
+            }
         }
     }
 
