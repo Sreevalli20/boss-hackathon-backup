@@ -53,8 +53,6 @@ jobs:
           RELEASES_TOKEN: ${{ secrets.PUBLIC_REPO_TOKEN }}
           SOURCE_TOKEN: ${{ github.token }}
           TARGET_VERSION: ${{ inputs.target_version }}
-          RELEASES_REPO: ${{ github.repository }}
-          SOURCE_REPO: ${{ github.repository }}
         run: bash .github/scripts/check-jxbrowser-release.sh
 
       - name: Report broken watcher
