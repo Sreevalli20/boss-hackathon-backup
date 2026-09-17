@@ -28,7 +28,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/chromium-release-utils.sh"
 
 gh_source() {
-  local token="${SOURCE_TOKEN:-${GH_TOKEN:-}}"
+  local token="${SOURCE_TOKEN:=${GH_TOKEN:-}}"
   if [[ -n "$token" ]]; then
     GH_TOKEN="$token" gh "$@"
   else
@@ -37,7 +37,7 @@ gh_source() {
 }
 
 gh_releases() {
-  local token="${RELEASES_TOKEN:-${GH_TOKEN:-}}"
+  local token="${RELEASES_TOKEN:=${GH_TOKEN:-}}"
   if [[ -n "$token" ]]; then
     GH_TOKEN="$token" gh "$@"
   else
