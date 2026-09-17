@@ -19,21 +19,13 @@ private val osName: String = System.getProperty("os.name").orEmpty().lowercase()
  * and `FileSystemDataProviderImpl.revealInFileManager` delegate here so the OS-specific
  * command lives in exactly one place.
  *
- * Security: Validates that the path is within the allowed boundary (user home directory)
- * to prevent plugins from revealing sensitive system files.
+ * Security: Validation is handled by the caller (FileSystemDataProviderImpl) which
+ * calls PluginFileSystemSecurity.validateAndNormalizePath before this function.
  */
 fun revealInFileManager(path: String): Result<Unit> {
     if (path.isBlank()) return Result.success(Unit)
 
-    // Security: Validate path is within allowed boundary
-    val validatedPath = try {
-        PluginFileSystemSecurity.validateAndNormalizePath(path, "revealInFileManager")
-    } catch (e: SecurityException) {
-        revealLogger.warn(LogCategory.SECURITY, "Reveal in file manager denied: path outside allowed boundary", mapOf("path" to path))
-        return Result.failure(e)
-    }
-
-    val file = File(validatedPath)
+    val file = File(path)
     return runCatching {
         when {
             osName.contains("mac") -> {

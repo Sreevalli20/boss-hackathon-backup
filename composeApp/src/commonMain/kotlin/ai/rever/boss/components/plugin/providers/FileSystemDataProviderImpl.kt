@@ -5,7 +5,6 @@ import ai.rever.boss.components.plugin.panels.left_top.directoryHasChildren
 import ai.rever.boss.components.plugin.panels.left_top.scanDirectory
 import ai.rever.boss.plugin.api.FileNodeData
 import ai.rever.boss.plugin.api.FileSystemDataProvider
-import ai.rever.boss.utils.PluginFileSystemSecurity
 import ai.rever.boss.utils.logging.BossLogger
 import ai.rever.boss.utils.logging.LogCategory
 import ai.rever.boss.utils.revealInFileManager
@@ -20,6 +19,8 @@ import ai.rever.boss.components.plugin.panels.left_top.scanDirectoryWithDepth as
 /**
  * Implementation of FileSystemDataProvider that wraps platform-specific file operations.
  * This allows plugins to access file system without direct platform coupling.
+ *
+ * Security validation is handled through platform-specific implementations in desktopMain.
  */
 class FileSystemDataProviderImpl : FileSystemDataProvider {
     private val logger = BossLogger.forComponent("FileSystemDataProvider")
@@ -27,7 +28,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
 
     override suspend fun scanDirectory(path: String): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
+            val validatedPath = validateFileSystemPath(path, "scanDirectory")
             ai.rever.boss.components.plugin.panels.left_top
                 .scanDirectory(validatedPath)
         }
@@ -38,12 +39,12 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         startDepth: Int,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
+            val validatedPath = validateFileSystemPath(path, "scanDirectoryWithDepth")
             platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth)
         }
 
     override fun directoryHasChildren(path: String): Boolean {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
+        val validatedPath = validateFileSystemPath(path, "directoryHasChildren")
         return ai.rever.boss.components.plugin.panels.left_top
             .directoryHasChildren(validatedPath)
     }
@@ -58,7 +59,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         showHidden: Boolean,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectory")
+            val validatedPath = validateFileSystemPath(path, "scanDirectory")
             ai.rever.boss.components.plugin.panels.left_top
                 .scanDirectory(validatedPath, showHidden)
         }
@@ -70,7 +71,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         showHidden: Boolean,
     ): FileNodeData? =
         kotlinx.coroutines.withContext(Dispatchers.IO) {
-            val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "scanDirectoryWithDepth")
+            val validatedPath = validateFileSystemPath(path, "scanDirectoryWithDepth")
             platformScanDirectoryWithDepth(validatedPath, maxDepth, startDepth, showHidden)
         }
 
@@ -78,7 +79,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         path: String,
         showHidden: Boolean,
     ): Boolean {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "directoryHasChildren")
+        val validatedPath = validateFileSystemPath(path, "directoryHasChildren")
         return ai.rever.boss.components.plugin.panels.left_top
             .directoryHasChildren(validatedPath, showHidden)
     }
@@ -87,7 +88,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
         path: String,
         windowId: String,
     ) {
-        val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "openFile")
+        val validatedPath = validateFileSystemPath(path, "openFile")
         ioScope.launch {
             FileEventBus.openFile(validatedPath, sourceWindowId = windowId)
         }
@@ -99,7 +100,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateChildPath(parentPath, fileName, "createFile")
+                val validatedPath = validateChildFileSystemPath(parentPath, fileName, "createFile")
                 val newFile = java.io.File(validatedPath)
 
                 val parentDir = newFile.parentFile
@@ -129,7 +130,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateChildPath(parentPath, folderName, "createFolder")
+                val validatedPath = validateChildFileSystemPath(parentPath, folderName, "createFolder")
                 val newFolder = java.io.File(validatedPath)
 
                 val parentDir = newFolder.parentFile
@@ -156,7 +157,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     override suspend fun delete(path: String): Result<Unit> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "delete")
+                val validatedPath = validateFileSystemPath(path, "delete")
                 val file = java.io.File(validatedPath)
 
                 // Note: We don't check exists() first to avoid race conditions.
@@ -185,7 +186,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "rename")
+                val validatedPath = validateFileSystemPath(path, "rename")
                 val file = java.io.File(validatedPath)
                 if (!file.exists()) {
                     return@withContext Result.failure(IllegalArgumentException("File or folder does not exist: $path"))
@@ -195,7 +196,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
                     file.parentFile
                         ?: return@withContext Result.failure(IllegalStateException("Cannot determine parent directory"))
 
-                val validatedNewPath = PluginFileSystemSecurity.validateChildPath(parentDir.absolutePath, newName, "rename")
+                val validatedNewPath = validateChildFileSystemPath(parentDir.absolutePath, newName, "rename")
                 val newFile = java.io.File(validatedNewPath)
 
                 if (newFile.exists()) {
@@ -215,8 +216,14 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     }
 
     override fun revealInFileManager(path: String): Result<Unit> {
-        // Security validation is now handled in the revealInFileManager utility function
-        return revealInFileManager(path)
+        // Security: Validate path before revealing in file manager
+        val validatedPath = try {
+            validateFileSystemPath(path, "revealInFileManager")
+        } catch (e: SecurityException) {
+            logger.warn(LogCategory.SECURITY, "Reveal in file manager denied: path outside allowed boundary", mapOf("path" to path))
+            return Result.failure(e)
+        }
+        return revealInFileManager(validatedPath)
     }
 
     override fun copyToClipboard(text: String): Result<Unit> =
@@ -235,7 +242,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     ): Result<Unit> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "writeFile")
+                val validatedPath = validateFileSystemPath(path, "writeFile")
                 val file = java.io.File(validatedPath)
 
                 // Ensure parent directory exists
@@ -256,7 +263,7 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
     override suspend fun readFile(path: String): Result<String> {
         return kotlinx.coroutines.withContext(Dispatchers.IO) {
             try {
-                val validatedPath = PluginFileSystemSecurity.validateAndNormalizePath(path, "readFile")
+                val validatedPath = validateFileSystemPath(path, "readFile")
                 val file = java.io.File(validatedPath)
 
                 if (!file.exists()) {
@@ -278,3 +285,15 @@ class FileSystemDataProviderImpl : FileSystemDataProvider {
 
     override fun getHomeDirectory(): String = System.getProperty("user.home")
 }
+
+/**
+ * Platform-specific path validation for filesystem operations.
+ * Implemented in desktopMain for JVM platforms with PluginFileSystemSecurity.
+ */
+internal expect fun validateFileSystemPath(path: String, operation: String): String
+
+/**
+ * Platform-specific child path validation for create operations.
+ * Implemented in desktopMain for JVM platforms with PluginFileSystemSecurity.
+ */
+internal expect fun validateChildFileSystemPath(parentPath: String, childName: String, operation: String): String

@@ -1,5 +1,6 @@
 package ai.rever.boss.utils
 
+import org.junit.After
 import org.junit.Assume.assumeNoException
 import org.junit.Test
 import java.io.File
@@ -23,6 +24,11 @@ import kotlin.test.assertTrue
 class PluginFileSystemSecurityTest {
     private val homeDir = System.getProperty("user.home")
     private val testDir = File(homeDir, "plugin-security-test").apply { mkdirs() }
+
+    @After
+    fun cleanup() {
+        testDir.deleteRecursively()
+    }
 
     @Test
     fun `allows access to files within user home directory`() {
@@ -300,12 +306,5 @@ class PluginFileSystemSecurityTest {
             PluginFileSystemSecurity.validateChildPath(maliciousParent, "test.txt", "test")
         }
         assertTrue(exception.message!!.contains("outside the allowed boundary"))
-    }
-
-    /**
-     * Cleanup test directory after tests
-     */
-    fun cleanup() {
-        testDir.deleteRecursively()
     }
 }

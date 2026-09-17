@@ -35,7 +35,7 @@ Path traversal attacks are prevented through:
 
 ### PluginFileSystemSecurity Utility
 
-The `PluginFileSystemSecurity` object provides centralized security validation:
+The `PluginFileSystemSecurity` object provides centralized security validation with platform-specific implementations:
 
 ```kotlin
 // Validate and normalize a path for filesystem access
@@ -52,6 +52,10 @@ val validatedChildPath = PluginFileSystemSecurity.validateChildPath(
 )
 ```
 
+The implementation uses Kotlin Multiplatform expect/actual pattern:
+- **commonMain**: Defines the interface and cross-platform validation logic
+- **desktopMain**: Provides JVM-specific implementations using `java.nio.file`
+
 ### Integration Points
 
 Security checks are integrated into:
@@ -66,7 +70,7 @@ Security checks are integrated into:
    - `readFile` / `writeFile`
    - `revealInFileManager`
 
-2. **RevealInFileManager**: The reveal utility now validates paths before OS operations
+2. **RevealInFileManager**: The reveal utility validates paths before OS operations
 
 ## Migration Implications
 
@@ -146,18 +150,14 @@ This security hardening is scoped to the `FileSystemDataProvider` interface and 
 
 ### Platform Considerations
 
-- **Windows**: Handles both forward slashes and backslashes correctly
-- **macOS**: Resolves case-insensitive filesystem issues
-- **Linux**: Standard Unix path handling
+- **Desktop platforms (macOS, Windows, Linux)**: Full security validation using JVM-specific APIs
+- **Architecture**: Uses Kotlin Multiplatform expect/actual pattern for platform-specific implementations
 
-### Future Enhancements
+### Current Limitations
 
-Potential future improvements could include:
-
-- Plugin-specific boundary configuration
-- Granular permission system for different directories
-- User-configurable directory grants
-- Integration with RBAC for filesystem permissions
+- Fixed boundary (user home directory) - not configurable per plugin
+- No audit logging of security violations (logged to BossLogger only)
+- No granular permission system for different directories
 
 ## Testing
 
@@ -178,10 +178,10 @@ Comprehensive tests cover:
 
 ```bash
 # Run the filesystem security tests
-./gradlew :composeApp:test --tests PluginFileSystemSecurityTest
+./gradlew :composeApp:desktopTest --tests PluginFileSystemSecurityTest
 
-# Run all composeApp tests
-./gradlew :composeApp:test
+# Run all composeApp desktop tests
+./gradlew :composeApp:desktopTest
 ```
 
 ## References

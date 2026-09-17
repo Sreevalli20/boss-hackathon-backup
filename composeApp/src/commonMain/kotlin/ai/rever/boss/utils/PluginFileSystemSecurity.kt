@@ -2,10 +2,6 @@ package ai.rever.boss.utils
 
 import ai.rever.boss.utils.logging.BossLogger
 import ai.rever.boss.utils.logging.LogCategory
-import java.io.File
-import java.nio.file.InvalidPathException
-import java.nio.file.Path
-import java.nio.file.Paths
 
 /**
  * Security utility for plugin filesystem access.
@@ -76,50 +72,17 @@ object PluginFileSystemSecurity {
             throw SecurityException("Path contains null byte - possible directory traversal attack for $operation")
         }
 
-        try {
-            // Convert to Path object for robust normalization
-            val path = Paths.get(rawPath)
-
-            // Normalize to handle . and .. segments
-            val normalizedPath = path.normalize()
-
-            // Convert to absolute path
-            val absolutePath = normalizedPath.toAbsolutePath()
-
-            // Resolve to canonical path (follows symlinks, handles platform-specific issues)
-            val canonicalPath = absolutePath.normalize()
-
-            // Enforce boundary: must be within user's home directory
-            val homeDir = File(System.getProperty("user.home")).canonicalFile
-            val homePath = homeDir.toPath().normalize()
-
-            if (!isPathWithinBoundary(canonicalPath, homePath)) {
-                logger.warn(
-                    LogCategory.SECURITY,
-                    "Plugin filesystem access denied: path outside allowed boundary",
-                    mapOf(
-                        "path" to canonicalPath.toString(),
-                        "boundary" to homePath.toString(),
-                        "operation" to operation,
-                    ),
-                )
-                throw SecurityException(
-                    "Access denied: path '${canonicalPath}' is outside the allowed boundary (user home directory). " +
-                        "Use FilePickerProvider for user-mediated file access or work within your plugin storage directory.",
-                )
-            }
-
-            return canonicalPath.toString()
-        } catch (e: InvalidPathException) {
-            throw SecurityException("Invalid filesystem path for $operation: ${e.message}")
-        } catch (e: SecurityException) {
-            // Re-throw our security exceptions
-            throw e
-        } catch (e: Exception) {
-            logger.warn(LogCategory.SECURITY, "Path validation failed", mapOf("path" to rawPath, "error" to e.toString()))
-            throw SecurityException("Path validation failed for $operation: ${e.message}")
-        }
+        return validateAndNormalizePathPlatform(rawPath, operation)
     }
+
+    /**
+     * Platform-specific path validation and normalization.
+     * Implemented in desktopMain for JVM platforms.
+     */
+    internal expect fun validateAndNormalizePathPlatform(
+        rawPath: String,
+        operation: String,
+    ): String
 
     /**
      * Validates that a child path is within a parent directory boundary.
@@ -151,55 +114,22 @@ object PluginFileSystemSecurity {
         }
 
         // Prevent path traversal in the child name
-        if (childName.contains("..") || childName.contains("/") || childName.contains("\\") ||
-            childName.contains(File.separator)
-        ) {
+        if (childName.contains("..") || childName.contains("/") || childName.contains("\\")) {
             throw SecurityException("Child name contains path traversal sequences for $operation")
         }
 
-        // Construct the full child path
-        val childPath = File(canonicalParent, childName)
-
-        // Ensure the child is within the parent
-        val canonicalChild = childPath.canonicalFile
-        if (!isPathWithinBoundary(canonicalChild.toPath(), Paths.get(canonicalParent))) {
-            throw SecurityException(
-                "Path traversal detected: child would be created outside parent directory for $operation",
-            )
-        }
-
-        return canonicalChild.absolutePath
+        return validateChildPathPlatform(canonicalParent, childName, operation)
     }
 
     /**
-     * Checks if a path is within a boundary directory.
-     *
-     * Uses canonical path comparison to handle symlinks and platform differences.
-     *
-     * @param path The path to check
-     * @param boundary The boundary directory
-     * @return true if the path is within the boundary, false otherwise
+     * Platform-specific child path validation.
+     * Implemented in desktopMain for JVM platforms.
      */
-    private fun isPathWithinBoundary(
-        path: Path,
-        boundary: Path,
-    ): Boolean {
-        val normalizedPath = path.normalize()
-        val normalizedBoundary = boundary.normalize()
-
-        // Exact match is allowed (the boundary itself)
-        if (normalizedPath == normalizedBoundary) {
-            return true
-        }
-
-        // Check if the path starts with the boundary path plus a separator
-        val boundaryString = normalizedBoundary.toString()
-        val pathString = normalizedPath.toString()
-
-        return pathString.startsWith(boundaryString + File.separator) ||
-            pathString.startsWith(boundaryString + "/") ||
-            pathString.startsWith(boundaryString + "\\")
-    }
+    internal expect fun validateChildPathPlatform(
+        canonicalParent: String,
+        childName: String,
+        operation: String,
+    ): String
 
     /**
      * Gets the allowed boundary directory for plugin filesystem access.
@@ -209,7 +139,5 @@ object PluginFileSystemSecurity {
      *
      * @return The canonical boundary directory
      */
-    fun getAllowedBoundary(): File {
-        return File(System.getProperty("user.home")).canonicalFile
-    }
+    expect fun getAllowedBoundary(): String
 }
